@@ -1,13 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using System.Net.Http;
-using System.Text;
 using System.Threading.Tasks;
-using System.Web.Script.Serialization;
-using Microsoft.Extensions.Logging;
-
+using System.Text.Json;
 namespace ffxiv
 {
     internal sealed class APIClient
@@ -38,7 +33,6 @@ namespace ffxiv
 
 		private static async Task<APIResponse> ParseRes(HttpResponseMessage res, List<string> items)
 		{
-			JavaScriptSerializer js = new JavaScriptSerializer();
 			//convert ContentStream to string
 			string apiRes = await res.Content.ReadAsStringAsync();
 
@@ -88,7 +82,7 @@ namespace ffxiv
 					//trim comma and quote off
 					itemJson = itemJson.Substring(0, itemJson.Length - 1);
 
-					retItems.Add(js.Deserialize<Item>(itemJson));
+					retItems.Add(JsonSerializer.Deserialize<Item>(itemJson));
 				}
 				// is last item
 				else
@@ -103,7 +97,7 @@ namespace ffxiv
 					//trim itemJson
 					itemJson = itemJson.Substring(0, itemJson.Length - 1);
 
-					retItems.Add(js.Deserialize<Item>(itemJson));
+					retItems.Add(JsonSerializer.Deserialize<Item>(itemJson));
 				}
 
 

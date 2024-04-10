@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using DotNetEnv;
-using System.Net.Http;
 using MongoDB.Driver;
 using System.IO;
 using CsvHelper;
@@ -12,7 +11,6 @@ using Polly;
 using Polly.Extensions.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 
 namespace ffxiv
@@ -22,7 +20,8 @@ namespace ffxiv
 		static IMongoClient DBClient;
 		private static TraceSource ts = new TraceSource("TraceSource");
 		static async Task Main(string[] args)
-		{
+		{ 
+
 			Env.TraversePath().Load();
 			
 			HostApplicationBuilder HTTPBuilder = Host.CreateApplicationBuilder(args);
