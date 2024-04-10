@@ -46,17 +46,9 @@ namespace ffxiv
 		public int pricePerUnit { get; set; }
 		public string worldName { get; set; }
 	}
-	class ItemEqualityComparer : IEqualityComparer<Item>
-	{
-		public bool Equals(Item i1, Item i2)
-		{
 
-			if (ReferenceEquals(i1, i2))
-				return true;
-			if (i2 is null || i1 is null)
-				return false;
-			return i1.Id == i2.Id;
-		}
-		public int GetHashCode(Item item) => int.Parse(item.Id) ^ item.unitsSold ^ (int)item.averagePrice;
+	class CSVItem
+	{
+		public string Id { get; set; }
 	}
 }
