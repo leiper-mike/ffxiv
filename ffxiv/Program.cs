@@ -8,12 +8,9 @@ using System.IO;
 using CsvHelper;
 using System.Globalization;
 using Polly;
-using System.Diagnostics;
 using System.Threading;
 using Polly.Retry;
 using Serilog;
-using Serilog.Sinks.File;
-using Serilog.Sinks.SystemConsole;
 using System.Net.Http;
 
 namespace ffxiv
@@ -90,6 +87,7 @@ namespace ffxiv
 			}
 			//toCall.Clear();
 			//toCall.Add(new List<string>() { "28752", "28753", "28754", "28755", "28756", "28757", "28758", "28759", "28760", "28761", "28762", "28763", "28764", "28765", "28766", "28767", "28768", "28769", "28770", "28771", "28772", "28773", "28774", "28775", "28776", "28777", "28778", "28779", "28780", "28781", "28782", "28783", "28784", "28785", "28786", "28787", "28788", "28789", "28790", "28791", "28792", "28793", "28794", "28795", "28796", "28797", "28798", "28799", "28800", "28801", "28802", "28803", "28804", "28805", "28806", "28807", "28808", "28809", "28810", "28811", "28812", "28813", "28814", "28815", "28816", "28817", "28818", "28819", "28820", "28821", "28822", "28823", "28824", "28825", "28826", "28827", "28828", "28829", "28830", "28831", "28832", "28833", "28834", "28835", "28836", "28837", "28838", "28839", "28840", "28841", "28842", "28843", "28844", "28845", "28846", "28847", "28848", "28849", "28850", "28851"});
+			int count = 0;
 			foreach (List<string> ids in toCall)
 			{
 				try
@@ -137,7 +135,8 @@ namespace ffxiv
 					{
 						break;
 					}
-					Log.Information("Finished upserting batch {0}-{1}", ids[0], ids[^1]);
+					count++;
+					Log.Information("Finished upserting batch {0}-{1}, {2} of {3} batches", ids[0], ids[^1], count, toCall.Count);
 				}
 				catch (Exception e)
 				{
@@ -187,7 +186,7 @@ namespace ffxiv
 
 			}
 
-			Log.Information($"Successfully inserted/updated {apiRes.items.Count} items into {dbName} database");
+			Log.Information($"Successfully inserted/updated {apiRes.items.Count} items into {apiRes.dcName} collection");
 
 			return true;
 		}
