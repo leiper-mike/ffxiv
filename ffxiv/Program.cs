@@ -8,63 +8,77 @@ using System.IO;
 using CsvHelper;
 using System.Globalization;
 using Polly;
-using Polly.Extensions.Http;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using System.Diagnostics;
+using System.Threading;
+using Polly.Retry;
+using Serilog;
+using Serilog.Sinks.File;
+using Serilog.Sinks.SystemConsole;
+using System.Net.Http;
 
 namespace ffxiv
 {
 	class Program
 	{
 		static IMongoClient DBClient;
-		private static TraceSource ts = new TraceSource("TraceSource");
+		private static CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+		
 		static async Task Main(string[] args)
-		{ 
+		{
+			Log.Logger = new LoggerConfiguration().WriteTo.Console().WriteTo.File(Path.GetFullPath("./logs/log.txt", Environment.CurrentDirectory)).CreateLogger();
+
+			Log.Information("Starting program.");
 
 			Env.TraversePath().Load();
 			
-			HostApplicationBuilder HTTPBuilder = Host.CreateApplicationBuilder(args);
-
-			var retryPolicy = HttpPolicyExtensions.HandleTransientHttpError().RetryAsync(3);
-
-
-			IHttpClientBuilder httpClientBuilder = HTTPBuilder.Services.AddHttpClient<APIClient>(
-			configureClient: client =>
+			APIClient ApiClient = new();
+			RetryStrategyOptions retryStrategy = new()
 			{
-				client.BaseAddress = new Uri("https://universalis.app/api/v2/");
+				MaxRetryAttempts = 5,
+				UseJitter = true,
+				BackoffType = DelayBackoffType.Linear,
+				OnRetry = static args =>
+				{
+					Log.Warning("API call failed with error {0}, retrying: {1}", args.Outcome.Exception.Message, args.AttemptNumber);
+					return default;
+				},
+				ShouldHandle = new PredicateBuilder().Handle<HttpRequestException>()
+			};
 
-			});
-			httpClientBuilder.AddPolicyHandler(retryPolicy);
-
-			IHost host = HTTPBuilder.Build();
-
-			APIClient ApiClient = host.Services.GetRequiredService<APIClient>();
+			ResiliencePipeline pipeline = new ResiliencePipelineBuilder()
+			.AddRetry(retryStrategy) 
+			.AddTimeout(TimeSpan.FromSeconds(10))
+			.Build();
+			
+			// add null check before inserting to DB
+			// potentially add failed api calls to retry after the rest have finished
 
 
 			try
 			{
 				DBClient = new MongoClient(Environment.GetEnvironmentVariable("DBCONNECTIONSTRING"));
-				ts.TraceEvent(TraceEventType.Information, 1, "Successfully connected to DB");
+				Log.Information("Successfully connected to DB");
 			}
 			catch (Exception e)
 			{
-				ts.TraceEvent(TraceEventType.Error, 1, "Failed to connect to MongoDB: " + e.Message);
-				ts.Flush();
+				Log.Fatal("Failed to connect to MongoDB: " + e.Message);
+				await Log.CloseAndFlushAsync();
 				return;
 			}
-			List<List<string>> toCall = new List<List<string>>();
-			using (var reader = new StreamReader("../../ItemIDs.csv"))
+
+			//load list of valid item IDs
+			List<List<string>> toCall = new();
+			using (var reader = new StreamReader("../../../ItemIDs.csv"))
 			using (var csv = new CsvReader(reader, CultureInfo.InvariantCulture))
 			{
 				List<CSVItem> ids = csv.GetRecords<CSVItem>().ToList();
-				List<string> tempIds = new List<string>();
+				List<string> tempIds = new();
 				foreach (CSVItem id in ids)
 				{
 					if (tempIds.Count() >= 100)
 					{
 						toCall.Add(tempIds);
-						tempIds = new List<string>();
+						tempIds = new();
 					}
 					tempIds.Add(id.Id);
 
@@ -74,57 +88,65 @@ namespace ffxiv
 					toCall.Add(tempIds);
 				}
 			}
-
+			//toCall.Clear();
+			//toCall.Add(new List<string>() { "28752", "28753", "28754", "28755", "28756", "28757", "28758", "28759", "28760", "28761", "28762", "28763", "28764", "28765", "28766", "28767", "28768", "28769", "28770", "28771", "28772", "28773", "28774", "28775", "28776", "28777", "28778", "28779", "28780", "28781", "28782", "28783", "28784", "28785", "28786", "28787", "28788", "28789", "28790", "28791", "28792", "28793", "28794", "28795", "28796", "28797", "28798", "28799", "28800", "28801", "28802", "28803", "28804", "28805", "28806", "28807", "28808", "28809", "28810", "28811", "28812", "28813", "28814", "28815", "28816", "28817", "28818", "28819", "28820", "28821", "28822", "28823", "28824", "28825", "28826", "28827", "28828", "28829", "28830", "28831", "28832", "28833", "28834", "28835", "28836", "28837", "28838", "28839", "28840", "28841", "28842", "28843", "28844", "28845", "28846", "28847", "28848", "28849", "28850", "28851"});
 			foreach (List<string> ids in toCall)
 			{
 				try
 				{
-					
-					//implement for each dc
-					APIResponse AetherRes = await ApiClient.CallAPI("Aether", ids, ts);
-					APIResponse CrystalRes = await ApiClient.CallAPI("Crystal", ids, ts);
-					APIResponse DynamisRes = await ApiClient.CallAPI("Dynamis", ids, ts);
-					APIResponse PrimalRes = await ApiClient.CallAPI("Primal", ids, ts);
+					Log.Information("Calling API");
 
-					ts.TraceEvent(TraceEventType.Information, 5, "Inserting into DB");
+					APIResponse AetherRes = await pipeline.ExecuteAsync(
+						async token => await ApiClient.CallAPI("Aether", ids),
+						cancellationTokenSource.Token);
+					APIResponse CrystalRes = await pipeline.ExecuteAsync(
+						async token => await ApiClient.CallAPI("Crystal", ids),
+						cancellationTokenSource.Token);
+					APIResponse DynamisRes = await pipeline.ExecuteAsync(
+						async token => await ApiClient.CallAPI("Dynamis", ids),
+						cancellationTokenSource.Token); 
+					APIResponse PrimalRes = await pipeline.ExecuteAsync(
+						async token => await ApiClient.CallAPI("Primal", ids),
+						cancellationTokenSource.Token);
 
-					bool AetherStatus = await InsertToDB("NA", AetherRes, ts);
-					bool CrystalStatus = await InsertToDB("NA", CrystalRes, ts);
-					bool DynamisStatus = await InsertToDB("NA", DynamisRes, ts);
-					bool PrimalStatus = await InsertToDB("NA", PrimalRes, ts);
+					Log.Information("Finished calling API, Upserting into DB");
+
+					bool AetherStatus = await InsertToDB("NA", AetherRes);
+					bool CrystalStatus = await InsertToDB("NA", CrystalRes);
+					bool DynamisStatus = await InsertToDB("NA", DynamisRes);
+					bool PrimalStatus = await InsertToDB("NA", PrimalRes);
 
 					//if one or more inserts fails, break out of loop
 					if (!AetherStatus)
 					{
-						ts.TraceEvent(TraceEventType.Warning, 1, "Aether insert/update failed.");
+						Log.Error("Aether insert/update failed.");
 					}
 					if (!CrystalStatus)
 					{
-						ts.TraceEvent(TraceEventType.Warning, 2, "Crystal insert/update failed.");
+						Log.Error("Crystal insert/update failed.");
 					}
 					if (!DynamisStatus)
 					{
-						ts.TraceEvent(TraceEventType.Warning, 3, "Dynamis insert/update failed.");
+						Log.Error("Dynamis insert/update failed.");
 					}
 					if (!PrimalStatus)
 					{
-						ts.TraceEvent(TraceEventType.Warning, 4, "Primal insert/update failed.");
+						Log.Error("Primal insert/update failed.");
 					}
 					if (!AetherStatus || !CrystalStatus || !DynamisStatus || !PrimalStatus)
 					{
-						ts.Flush();
 						break;
 					}
+					Log.Information("Finished upserting batch {0}-{1}", ids[0], ids[^1]);
 				}
 				catch (Exception e)
 				{
-					ts.TraceEvent(TraceEventType.Error, 2, e.Message);
-					ts.Flush();
+					Log.Error(e.Message);
 				}
 
 			}
-			ts.TraceEvent(TraceEventType.Information, 2, "Finished inserting " + toCall.Count + " items into DB!");
-			ts.Close();
+			Log.Information("Finished inserting " + toCall.Count + " batches into DB!");
+			await Log.CloseAndFlushAsync();
 
 		}
 		
@@ -134,48 +156,39 @@ namespace ffxiv
 		/// <param name="dbName"> Name of Database, ie name of region</param>
 		/// <param name="apiRes"> API response object, </param>
 		/// <returns>boolean, true if no errors, false otherwise</returns>
-		static async Task<bool> InsertToDB(string dbName, APIResponse apiRes, TraceSource ts)
+		static async Task<bool> InsertToDB(string dbName, APIResponse apiRes)
 		{
 			if (apiRes == null)
 			{
-				ts.TraceEvent(TraceEventType.Warning, 5, "No APIRes passed to db for insert");
-				return false;
+				throw new Exception("No APIRes object passed to DB for insertion");
 			}
-			try
+
+			IMongoCollection<Item> ItemCollection = DBClient.GetDatabase(dbName).GetCollection<Item>(apiRes.dcName);
+			using (var session = await DBClient.StartSessionAsync())
 			{
-				IMongoCollection<Item> ItemCollection = DBClient.GetDatabase(dbName).GetCollection<Item>(apiRes.dcName);
-				using (var session = await DBClient.StartSessionAsync())
+				// Begin transaction
+				session.StartTransaction();
+
+				try
 				{
-					// Begin transaction
-					session.StartTransaction();
-
-					try
+					ReplaceOptions options = new ReplaceOptions();
+					options.IsUpsert = true;
+					foreach (Item item in apiRes.items)
 					{
-						ReplaceOptions options = new ReplaceOptions();
-						options.IsUpsert = true;
-						foreach (Item item in apiRes.items)
-						{
-							ItemCollection.ReplaceOne(Builders<Item>.Filter.Where(i => i.Id == item.Id), item, options);
-						}
-						await session.CommitTransactionAsync();
+						ItemCollection.ReplaceOne(Builders<Item>.Filter.Where(i => i.Id == item.Id), item, options);
 					}
-					catch (Exception e)
-					{
-						ts.TraceEvent(TraceEventType.Error, 3, "Error writing to MongoDB: " + e.Message);
-						await session.AbortTransactionAsync();
-						return false;
-					}
-
+					await session.CommitTransactionAsync();
+				}
+				catch
+				{
+					await session.AbortTransactionAsync();
+					throw;
 				}
 
-				ts.TraceEvent(TraceEventType.Information, 3, $"Successfully inserted/updated {apiRes.items.Count} items into {dbName} database");
 			}
-			catch (Exception e)
-			{
-				ts.TraceEvent(TraceEventType.Error, 4, $"Something went wrong trying to insert the new documents." +
-					$" Message: {e.Message}");
-				return false;
-			}
+
+			Log.Information($"Successfully inserted/updated {apiRes.items.Count} items into {dbName} database");
+
 			return true;
 		}
 

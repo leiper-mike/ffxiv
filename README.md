@@ -5,8 +5,8 @@ A C# project to pull item data from the Universalis API in order to help players
 2. [x] Make and test calls to Universalis API
 3. [x] Create data structures 
 4. [x] Parse API response into data scructures
-5. [ ] Read from Items.csv and extract item IDs
-6. [ ] Make API call for all items on all NA data centers
+5. [x] Read from Items.csv and extract item IDs
+6. [x] Make API call for all items on all NA data centers
 7. [ ] Schedule above API calls
 ### Phase 2 - Frontend
 1. [ ] Header - Navigation bar
