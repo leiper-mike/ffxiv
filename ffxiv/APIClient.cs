@@ -7,7 +7,7 @@ using System;
 using Serilog;
 namespace ffxiv
 {
-    internal sealed class APIClient
+    internal class APIClient
     {
 		HttpClient client;
 		public APIClient()
@@ -106,7 +106,7 @@ namespace ffxiv
 							//trim itemJson to prepare to insert 
 							itemJson = itemJson.Substring(itemJson.IndexOf("{") + 1);
 							//add the item ID
-							itemJson = $"{{ \"ID\": \"{item}\"," + itemJson;
+							itemJson = $"{{ \"Id\": \"{item}\"," + itemJson;
 							//trim itemJson
 							itemJson = itemJson.Substring(0, itemJson.Length - 1);
 
