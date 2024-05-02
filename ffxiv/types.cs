@@ -19,6 +19,7 @@ namespace ffxiv
 	}
 	class APIResponse
 	{
+		public string regionName { get; set; }
 		public string dcName { get; set; }
 		public List<Item> items { get; set; }
 
